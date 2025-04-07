@@ -31,11 +31,22 @@ def remove_unwanted_lines(structured_output):
         cleaned_output.append(line)
     return cleaned_output
 
-def send_to_gemini(prompt_text):
+def send_to_gemini(prompt_text, max_tokens=12000):
     genai.configure(api_key=GENAI_API_KEY)
     model = genai.GenerativeModel("gemini-1.5-pro-latest")
-    response = model.generate_content(prompt_text)
-    return response.text.strip()
+
+    try:
+        if len(prompt_text) > max_tokens:
+            prompt_text = prompt_text[:max_tokens]
+            prompt_text += "\n\n[Truncated due to length limits]"
+
+        response = model.generate_content(prompt_text)
+        return response.text.strip()
+
+    except genai.types.generation_types.StopCandidateException:
+        return "⚠️ Gemini API stopped generation unexpectedly."
+    except Exception as e:
+        return f"❌ Gemini API Error: {str(e)}"
 
 def fetch_full_html_content(url):
     try:
@@ -107,6 +118,10 @@ def fetch_full_html_content(url):
 
         structured_output = remove_unwanted_lines(structured_output)
         final_output = "\n\n".join(structured_output)
+
+        if len(final_output) > 12000:
+            final_output = final_output[:12000] + "\n\n[Truncated due to size limit]"
+
         return send_to_gemini(f"Correct grammar, improve formatting, preserve structure:\n\n{final_output}")
 
     except requests.exceptions.RequestException as e:
@@ -159,11 +174,14 @@ def is_url(input_text):
     return input_text.startswith("http://") or input_text.startswith("https://")
 
 # --- Streamlit UI ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="Ai-Thalli Web Analyzer Developed by Shiva", layout="wide")
 st.title("🤖 Ai-Thalli Web Analyzer Developed by Shiva")
-user_input = st.text_input("Enter your query or a URL:", "")
 
-if user_input:
+user_input = st.text_input("Enter your query or a URL:", "")
+submit = st.button("Submit")
+
+if submit and user_input:
     with st.spinner("🔍 Analyzing..."):
         if is_url(user_input):
             result = fetch_full_html_content(user_input)
