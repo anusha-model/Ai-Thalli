@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 import google.generativeai as genai
 
-GENAI_API_KEY = "YOUR_GEMINI_API_KEY"  # Replace with your Gemini API key
+GENAI_API_KEY = "AIzaSyDkCWbe60Y_f8jw-Tp_lHoHFsEnqb1QBoE"  # Replace with your Gemini API key
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -159,8 +159,8 @@ def is_url(input_text):
     return input_text.startswith("http://") or input_text.startswith("https://")
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Ai-Thalli Web Analyzer", layout="wide")
-st.title("🤖 Ai-Thalli Web Analyzer")
+st.set_page_config(page_title="Ai-Thalli Web Analyzer Developed by Shiva", layout="wide")
+st.title("🤖 Ai-Thalli Web Analyzer Developed by Shiva")
 user_input = st.text_input("Enter your query or a URL:", "")
 
 if user_input:
