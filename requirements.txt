@@ -1,5 +1,5 @@
 streamlit
-requests
-beautifulsoup4
-duckduckgo-search
+duckduckgo_search
 google-generativeai
+beautifulsoup4
+requests
