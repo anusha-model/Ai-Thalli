@@ -1,6 +1,3 @@
-
-
-# ✅ Write the Streamlit app to a file
 import re
 import requests
 import streamlit as st
@@ -8,7 +5,7 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 import google.generativeai as genai
 
-GENAI_API_KEY = "AIzaSyDkCWbe60Y_f8jw-Tp_lHoHFsEnqb1QBoE"  # Replace with env var in production
+GENAI_API_KEY = "YOUR_GEMINI_API_KEY"  # Replace with your Gemini API key
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -56,6 +53,8 @@ def fetch_full_html_content(url):
         for element in body.find_all(True):
             tag = element.name
             text = element.get_text(strip=True)
+            data_title = element.get("data-title", "")
+
             if not text or len(text.split()) < 3:
                 continue
             if any(bad in text.lower() for bad in ["cookie", "privacy", "login", "subscribe", "terms", "accept"]):
@@ -73,6 +72,35 @@ def fetch_full_html_content(url):
                 line = f"> {text}"
             elif tag in ["pre", "code"]:
                 line = f"```\n{text}\n```"
+            elif tag == "a":
+                display_text = text or data_title or element.get("name", "")
+                if display_text:
+                    line = display_text.replace("\xa0", " ").strip()
+            elif tag == "img":
+                alt = element.get("alt", "Image")
+                line = f"[Image: {alt}]"
+            elif tag == "table":
+                line = "\n--- Table ---"
+            elif tag == "tr":
+                row = "| " + " | ".join(cell.get_text(strip=True) for cell in element.find_all(["th", "td"])) + " |"
+                line = row
+            elif tag in ["strong", "b"]:
+                line = f"**{text}**"
+            elif tag in ["em", "i"]:
+                line = f"*{text}*"
+            elif tag == "u":
+                line = f"<u>{text}</u>"
+            elif tag in ["s", "del", "strike"]:
+                line = f"~~{text}~~"
+            elif tag in ["abbr", "acronym"]:
+                title = element.get("title", "")
+                line = f"*{text}* ({title})" if title else f"*{text}*"
+            elif tag == "mark":
+                line = f"`{text}`"
+            elif tag in ["dt", "dd", "figcaption", "caption", "summary"]:
+                line = f"**{text}**"
+            elif tag in ["kbd", "samp", "tt", "var", "q"]:
+                line = f"`{text}`"
 
             if line:
                 structured_output.append(clean_text(line))
@@ -85,9 +113,12 @@ def fetch_full_html_content(url):
         return f"❌ Error fetching the page: {str(e)}"
 
 def get_top_sites_duckduckgo(query, count=3):
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=count)
-        return [r['href'] for r in results if 'href' in r][:count]
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.text(query, max_results=count)
+            return [r['href'] for r in results if 'href' in r][:count]
+    except Exception as e:
+        return []
 
 def fetch_page_content(url):
     try:
@@ -127,18 +158,16 @@ def fetch_top_3_and_analyze(query):
 def is_url(input_text):
     return input_text.startswith("http://") or input_text.startswith("https://")
 
-# ------------------ Streamlit UI ------------------
-st.set_page_config(page_title="Web Intelligence by Gemini", layout="wide")
-st.title("🔍 AI-Powered Web Intelligence Tool")
-st.write("Enter a search query or a full URL to get structured, cleaned, and summarized information using Google Gemini.")
+# --- Streamlit UI ---
+st.set_page_config(page_title="Ai-Thalli Web Analyzer", layout="wide")
+st.title("🤖 Ai-Thalli Web Analyzer")
+user_input = st.text_input("Enter your query or a URL:", "")
 
-user_input = st.text_input("Enter a query or URL", placeholder="e.g. What is quantum computing? OR https://example.com/article")
-
-if st.button("Get Answer") and user_input.strip():
-    with st.spinner("Processing..."):
+if user_input:
+    with st.spinner("🔍 Analyzing..."):
         if is_url(user_input):
             result = fetch_full_html_content(user_input)
         else:
             result = fetch_top_3_and_analyze(user_input)
-        st.markdown("### ✅ Result:")
+        st.markdown("---")
         st.markdown(result)
