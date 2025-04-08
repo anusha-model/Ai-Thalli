@@ -191,7 +191,7 @@ st.markdown(
         }
     </style>
     <div class="logo-container">
-        <img src="https://example.com/your-logo.png" alt="Logo">
+        <img src="logo.jpg" alt="Logo">
     </div>
     """,
     unsafe_allow_html=True
