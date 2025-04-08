@@ -184,7 +184,7 @@ def fetch_top_3_and_analyze(query):
     if not websites:
         return "🚫 No websites found via DuckDuckGo."
 
-    site_contents = [fetch_page_content(url) for url in websites]
+    site_contents = [fetch_full_html_content(url) for url in websites]
     best_answer = analyze_with_llm(query, site_contents)
     return f"✅ Final Answer:\n\n{best_answer}"
 
