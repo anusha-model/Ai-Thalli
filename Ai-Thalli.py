@@ -1,25 +1,41 @@
+import streamlit as st
+from dotenv import load_dotenv
+import os
 import re
 import requests
-import streamlit as st
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
+from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
 
-GENAI_API_KEY = "AIzaSyDkCWbe60Y_f8jw-Tp_lHoHFsEnqb1QBoE"  # Replace with your Gemini API key
+# Load environment variables
+load_dotenv()
+GENAI_API_KEY = os.getenv("AIzaSyDkCWbe60Y_f8jw-Tp_lHoHFsEnqb1QBoE")
+genai.configure(api_key=GENAI_API_KEY)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 }
 
+YOUTUBE_PROMPT = """
+You are a YouTube video summarizer. You will be taking the transcript text
+and summarizing the entire video, providing the important summary in points
+within 250 words. Please provide the summary of the text given here:
+"""
+
+# Utility Functions
+def is_url(input_text):
+    return input_text.startswith("http://") or input_text.startswith("https://")
+
 def clean_text(text):
-    text = re.sub(r'\[\d+\]', '', text)
-    text = re.sub(r'http[s]?://\S+', '', text)
+    text = re.sub(r'\[\d+\]', '', text)  # citations
+    text = re.sub(r'http[s]?://\S+', '', text)  # URLs
     text = re.sub(r'\s+', ' ', text)
     return text.encode("ascii", "ignore").decode().strip()
 
-def remove_unwanted_lines(structured_output):
+def remove_unwanted_lines(lines):
     cleaned_output = []
-    for line in structured_output:
+    for line in lines:
         if re.match(r'^[A-Z][a-z]+\s[A-Z][a-z]+$', line.strip()):
             continue
         if re.search(r'\*\*[^()\n]+\*\*', line) and not re.search(r'\*\*\(.*\)\*\*', line):
@@ -31,22 +47,58 @@ def remove_unwanted_lines(structured_output):
         cleaned_output.append(line)
     return cleaned_output
 
-def send_to_gemini(prompt_text, max_tokens=12000):
-    genai.configure(api_key=GENAI_API_KEY)
+def send_to_gemini(prompt_text):
     model = genai.GenerativeModel("gemini-1.5-pro-latest")
+    response = model.generate_content(prompt_text)
+    return response.text.strip()
 
+# YouTube Functions
+def extract_transcript_details(youtube_video_url):
     try:
-        if len(prompt_text) > max_tokens:
-            prompt_text = prompt_text[:max_tokens]
-            prompt_text += "\n\n[Truncated due to length limits]"
+        if "v=" in youtube_video_url:
+            video_id = youtube_video_url.split("v=")[1].split("&")[0]
+        else:
+            video_id = youtube_video_url.split("/")[-1]
 
-        response = model.generate_content(prompt_text)
-        return response.text.strip()
-
-    except genai.types.generation_types.StopCandidateException:
-        return "⚠️ Gemini API stopped generation unexpectedly."
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript = " ".join([item["text"] for item in transcript_data])
+        return transcript, video_id
     except Exception as e:
-        return f"❌ Gemini API Error: {str(e)}"
+        st.error(f"Failed to extract transcript: {e}")
+        return None, None
+
+def generate_gemini_content(transcript_text):
+    return send_to_gemini(YOUTUBE_PROMPT + transcript_text)
+
+# Web Analysis Functions
+def get_top_sites_duckduckgo(query, count=5):
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=count)
+        return [r['href'] for r in results if 'href' in r][:count]
+
+def fetch_page_content(url):
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        paragraphs = soup.find_all("p")
+        text = " ".join(p.get_text() for p in paragraphs[:5])
+        return clean_text(text)
+    except Exception as e:
+        return f"⚠️ Could not fetch content from {url}: {e}"
+
+def analyze_with_llm(query, site_contents):
+    prompt = f"""You are a helpful AI assistant. Here is a question:\n\n{query}\n\n
+Below are the extracted responses from the top 5 websites. Compare them, correct inaccuracies, and summarize the most reliable and accurate answer.
+
+""" + "\n\n".join([f"--- Website {i+1} ---\n{site_contents[i]}" for i in range(len(site_contents))]) + "\n\nReturn only the best and most accurate answer."
+    return send_to_gemini(prompt)
+
+def fetch_top_5_and_analyze(query):
+    websites = get_top_sites_duckduckgo(query, count=5)
+    if not websites:
+        return "🚫 No websites found via DuckDuckGo."
+    site_contents = [fetch_page_content(url) for url in websites]
+    return analyze_with_llm(query, site_contents)
 
 def fetch_full_html_content(url):
     try:
@@ -56,6 +108,9 @@ def fetch_full_html_content(url):
         for tag in soup(['script', 'style', 'noscript', 'iframe', 'object', 'embed', 'applet', 'header', 'footer', 'nav']):
             tag.decompose()
 
+        for noisy in soup.find_all("div", {"id": ["tpointtech-images", "link", "navbarCollapse", "nav", "menu", "sidebar"]}):
+            noisy.decompose()
+
         body = soup.find('body')
         if not body:
             return "❌ Body content not found."
@@ -64,7 +119,7 @@ def fetch_full_html_content(url):
         for element in body.find_all(True):
             tag = element.name
             text = element.get_text(strip=True)
-            data_title = element.get("data-title", "")
+            data_title = element.get("title", "")
 
             if not text or len(text.split()) < 3:
                 continue
@@ -118,114 +173,35 @@ def fetch_full_html_content(url):
 
         structured_output = remove_unwanted_lines(structured_output)
         final_output = "\n\n".join(structured_output)
-
-        if len(final_output) > 12000:
-            final_output = final_output[:12000] + "\n\n[Truncated due to size limit]"
-
         return send_to_gemini(f"Correct grammar, improve formatting, preserve structure:\n\n{final_output}")
-
-    except requests.exceptions.RequestException as e:
-        return f"❌ Error fetching the page: {str(e)}"
-
-def get_top_sites_duckduckgo(query, count=3):
-    try:
-        with DDGS() as ddgs:
-            results = ddgs.text(query, max_results=count)
-            return [r['href'] for r in results if 'href' in r][:count]
     except Exception as e:
-        return []
+        return f"❌ Error fetching page content: {str(e)}"
 
-def fetch_page_content(url):
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        paragraphs = soup.find_all("p")
-        text = " ".join(p.get_text() for p in paragraphs[:5])
-        return clean_text(text)
-    except Exception as e:
-        return f"⚠️ Could not fetch content from {url}: {e}"
+# Streamlit UI
+st.title("🧠 AI Summarizer: YouTube + Web Insights")
 
-def analyze_with_llm(query, site_contents):
-    prompt = f"""You are a helpful AI assistant. Here is a question:\n\n{query}\n\n
-Below are the extracted responses from the top 3 websites. Compare them, correct inaccuracies, and summarize the most reliable and accurate answer.
+input_text = st.text_input("Enter a YouTube link or Search Query/URL:")
 
---- Website 1 ---
-{site_contents[0]}
+if input_text:
+    if "youtube.com" in input_text or "youtu.be" in input_text:
+        transcript, video_id = extract_transcript_details(input_text)
+        if video_id:
+            st.image(f"http://img.youtube.com/vi/{video_id}/0.jpg", use_column_width=True)
+        if st.button("Summarize YouTube Video") and transcript:
+            with st.spinner("Generating YouTube summary..."):
+                summary = generate_gemini_content(transcript)
+            st.markdown("## 📝 Video Summary:")
+            st.write(summary)
 
---- Website 2 ---
-{site_contents[1]}
-
---- Website 3 ---
-{site_contents[2]}
-
-Return only the best and most accurate answer. Do not explain if the sources are bad. Do not generate your own answer if sources are weak. Return nothing if there's no useful content.
-"""
-    response = send_to_gemini(prompt)
-
-    # Remove fallback generation from Gemini (if any slipped through)
-    fallback_phrases = [
-        "None of the provided websites offer",
-        "I'll generate them myself",
-        "I cannot synthesize a best answer",
-        "Therefore, I will provide",
-        "Since the sources are weak",
-        "Based on my own knowledge",
-    ]
-
-    for phrase in fallback_phrases:
-        if phrase.lower() in response.lower():
-            return "🚫 Not enough valid content found in the top 3 websites to generate an accurate answer."
-
-    return response
-
-
-def fetch_top_3_and_analyze(query):
-    websites = get_top_sites_duckduckgo(query, count=3)
-    if not websites:
-        return "🚫 No websites found via DuckDuckGo."
-
-    site_contents = [fetch_full_html_content(url) for url in websites]
-    best_answer = analyze_with_llm(query, site_contents)
-    return f"✅ Final Answer:\n\n{best_answer}"
-
-def is_url(input_text):
-    return input_text.startswith("http://") or input_text.startswith("https://")
-
-# --- Streamlit UI ---
-# --- Streamlit UI ---
-st.set_page_config(page_title="Ai-Thalli Web Analyzer Developed by Shiva", layout="wide")
-
-# Add logo in top-right corner using HTML
-st.markdown(
-    """
-    <style>
-        .logo-container {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-        }
-        .logo-container img {
-            width: 80px;  /* adjust size as needed */
-        }
-    </style>
-    <div class="logo-container">
-        <img src="logo.jpg" alt="Logo">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.title("🤖 Ai-Thalli Web Analyzer Developed by Shiva")
-
-
-user_input = st.text_input("Enter your query or a URL:", "")
-submit = st.button("Submit")
-
-if submit and user_input:
-    with st.spinner("🔍 Analyzing..."):
-        if is_url(user_input):
-            result = fetch_full_html_content(user_input)
-        else:
-            result = fetch_top_3_and_analyze(user_input)
-        st.markdown("---")
-        st.markdown(result)
+    elif is_url(input_text):
+        if st.button("Summarize Web Page"):
+            with st.spinner("Processing web content..."):
+                result = fetch_full_html_content(input_text)
+            st.markdown("## 🌐 Web Page Summary:")
+            st.write(result)
+    else:
+        if st.button("Get Best Answer from Web"):
+            with st.spinner("Analyzing top 5 websites..."):
+                result = fetch_top_5_and_analyze(input_text)
+            st.markdown("## 🔍 Answer from Top 5 Sites:")
+            st.write(result)
