@@ -176,7 +176,29 @@ def is_url(input_text):
 # --- Streamlit UI ---
 # --- Streamlit UI ---
 st.set_page_config(page_title="Ai-Thalli Web Analyzer Developed by Shiva", layout="wide")
+
+# Add logo in top-right corner using HTML
+st.markdown(
+    """
+    <style>
+        .logo-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .logo-container img {
+            width: 80px;  /* adjust size as needed */
+        }
+    </style>
+    <div class="logo-container">
+        <img src="https://example.com/your-logo.png" alt="Logo">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("🤖 Ai-Thalli Web Analyzer Developed by Shiva")
+
 
 user_input = st.text_input("Enter your query or a URL:", "")
 submit = st.button("Submit")
