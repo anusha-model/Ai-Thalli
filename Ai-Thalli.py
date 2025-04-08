@@ -158,8 +158,26 @@ Below are the extracted responses from the top 3 websites. Compare them, correct
 --- Website 3 ---
 {site_contents[2]}
 
-Return only the best and most accurate answer."""
-    return send_to_gemini(prompt)
+Return only the best and most accurate answer. Do not explain if the sources are bad. Do not generate your own answer if sources are weak. Return nothing if there's no useful content.
+"""
+    response = send_to_gemini(prompt)
+
+    # Remove fallback generation from Gemini (if any slipped through)
+    fallback_phrases = [
+        "None of the provided websites offer",
+        "I'll generate them myself",
+        "I cannot synthesize a best answer",
+        "Therefore, I will provide",
+        "Since the sources are weak",
+        "Based on my own knowledge",
+    ]
+
+    for phrase in fallback_phrases:
+        if phrase.lower() in response.lower():
+            return "🚫 Not enough valid content found in the top 3 websites to generate an accurate answer."
+
+    return response
+
 
 def fetch_top_3_and_analyze(query):
     websites = get_top_sites_duckduckgo(query, count=3)
