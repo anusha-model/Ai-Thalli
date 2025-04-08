@@ -186,7 +186,7 @@ if input_text:
     if "youtube.com" in input_text or "youtu.be" in input_text:
         transcript, video_id = extract_transcript_details(input_text)
         if video_id:
-            st.image(f"http://img.youtube.com/vi/{video_id}/0.jpg", use_column_width=True)
+            st.image(f"http://img.youtube.com/vi/{video_id}/0.jpg", use_container_width=True)
         if st.button("Summarize YouTube Video") and transcript:
             with st.spinner("Generating YouTube summary..."):
                 summary = generate_gemini_content(transcript)
